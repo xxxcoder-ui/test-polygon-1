@@ -267,11 +267,11 @@ func GenerateContractAccount(
 	contractStorage = storageEntries
 	contractCode = res.ReturnValue
 
-	stakingAccount := &chain.GenesisAccount{
+	contractAccount := &chain.GenesisAccount{
 		Nonce:   contractNonce,
 		Code:    contractCode,
 		Storage: contractStorage,
 	}
 
-	return stakingAccount, nil
+	return contractAccount, nil
 }
