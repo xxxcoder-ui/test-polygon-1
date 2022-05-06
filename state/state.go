@@ -3,6 +3,10 @@ package state
 import (
 	"bytes"
 	"fmt"
+	"github.com/0xPolygon/polygon-edge/chain"
+	"github.com/0xPolygon/polygon-edge/state/runtime"
+	"github.com/0xPolygon/polygon-edge/state/runtime/evm"
+	"math"
 	"math/big"
 
 	iradix "github.com/hashicorp/go-immutable-radix"
@@ -188,4 +192,86 @@ type StorageObject struct {
 	Deleted bool
 	Key     []byte
 	Val     []byte
+}
+
+func GenerateContractAccount(
+	config chain.ForksInTime,
+	state State,
+	contractAddress types.Address,
+	contractBytecode []byte,
+) (*chain.GenesisAccount, error) {
+	//	genesis account fields generated with the contract
+	var (
+		contractNonce   uint64
+		contractCode    []byte
+		contractStorage map[types.Hash]types.Hash
+	)
+
+	// create contract
+	contract := runtime.NewContractCreation(
+		1,
+		types.ZeroAddress,
+		types.ZeroAddress,
+		contractAddress,
+		big.NewInt(0),
+		math.MaxInt64,
+		contractBytecode,
+	)
+
+	// create transaction that will mutate the state trie
+	txn := NewTxn(state, state.NewSnapshot())
+
+	// create transition
+	transition := &Transition{
+		config: config,
+		state:  txn,
+		r: &Executor{
+			runtimes: []runtime.Runtime{
+				evm.NewEVM(),
+			},
+		},
+	}
+
+	// run the transition
+	res := transition.run(contract, transition)
+	if res.Err != nil {
+		panic("bad - evm failed")
+	}
+
+	// walk the state and collect storage
+	storageEntries := make(map[types.Hash]types.Hash)
+	transition.state.txn.Root().Walk(func(k []byte, v interface{}) bool {
+		accountAddress := types.BytesToAddress(k)
+		if accountAddress != contractAddress {
+			return false
+		}
+
+		obj := v.(*StateObject)
+		obj.Txn.Root().Walk(func(k []byte, v interface{}) bool {
+			key := types.BytesToHash(k)
+			value := types.BytesToHash(v.([]byte))
+
+			storageEntries[key] = value
+
+			return false
+		})
+
+		return true
+	})
+
+	// create genesis account
+	if config.EIP158 {
+		contractNonce = 1
+	}
+
+	contractStorage = storageEntries
+	contractCode = res.ReturnValue
+
+	stakingAccount := &chain.GenesisAccount{
+		Nonce:   contractNonce,
+		Code:    contractCode,
+		Storage: contractStorage,
+	}
+
+	return stakingAccount, nil
 }
