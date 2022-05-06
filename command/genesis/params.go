@@ -286,6 +286,7 @@ func (p *genesisParams) initGenesisConfig() error {
 	}
 
 	// Premine accounts
+	//	TODO (milos): see if you still need this
 	stakingAccount, err := stakingHelper.GenerateGenesisAccountFromFile(
 		"./Greeter.json",
 		[]interface{}{"yoshiki"},
