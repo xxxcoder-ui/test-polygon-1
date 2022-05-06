@@ -7,11 +7,8 @@ import (
 	"github.com/0xPolygon/polygon-edge/helper/common"
 	"github.com/0xPolygon/polygon-edge/state"
 	itrie "github.com/0xPolygon/polygon-edge/state/immutable-trie"
-	"github.com/0xPolygon/polygon-edge/state/runtime"
-	"github.com/0xPolygon/polygon-edge/state/runtime/evm"
 	"github.com/umbracle/go-web3/abi"
 	"io/ioutil"
-	"math"
 	"math/big"
 	"os"
 	"strings"
@@ -197,14 +194,12 @@ func generateContractArtifact(filepath string) (*contractArtifact, error) {
 	return artifact, nil
 }
 
+//	TODO: move this out to a separate helper package in end phase
 func GenerateGenesisAccountFromFile(
 	filepath string,
 	constructorParams []interface{},
 ) (*chain.GenesisAccount, error) {
-	// Set the code for the staking smart contract
-	// Code retrieved from https://github.com/0xPolygon/staking-contracts
-
-	//	create artifact from json file
+	//	#1: generate contract bytecode based on json file
 	artifact, err := generateContractArtifact(filepath)
 	if err != nil {
 		return nil, err
@@ -224,28 +219,12 @@ func GenerateGenesisAccountFromFile(
 		return nil, err
 	}
 
+	//	#2: verify contract satisfies required interface
+	//	TODO: maybe this should/must be done in generateContractArtifact
+
 	finalBytecode := append(artifact.Bytecode, constructor...)
 
-	// 	create state
-	st := itrie.NewState(itrie.NewMemoryStorage())
-
-	//	create snapshot
-	snapshot := st.NewSnapshot()
-
-	//	create radix
-	radix := state.NewTxn(st, snapshot)
-
-	//	create Contract
-	contract := runtime.NewContractCreation(
-		1,
-		types.ZeroAddress,
-		types.ZeroAddress,
-		staking.AddrStakingContract,
-		big.NewInt(0),
-		math.MaxInt64,
-		finalBytecode,
-	)
-
+	//	TODO (milos): obtain config from somewhere
 	config := chain.ForksInTime{
 		Homestead:      true,
 		Byzantium:      true,
@@ -257,43 +236,19 @@ func GenerateGenesisAccountFromFile(
 		EIP155:         true,
 	}
 
-	//	create transition (of all above)
-	transition := state.NewTransition(config, radix)
+	//	#3: generate genesis account based on contract bytecode
+	memState := itrie.NewState(itrie.NewMemoryStorage())
 
-	//	run the transition
-	res := evm.NewEVM().Run(contract, transition, &config)
-	if res.Err != nil {
-		panic("bad - evm failed")
+	contractAccount, err := state.GenerateContractAccount(
+		config,
+		memState,
+		staking.AddrStakingContract,
+		finalBytecode)
+	if err != nil {
+		return nil, fmt.Errorf("unable to generate contract account - err: %w", err)
 	}
 
-	//	walk the state and collect
-	storageMap := make(map[types.Hash]types.Hash)
-	radix.GetRadix().Root().Walk(func(k []byte, v interface{}) bool {
-		addr := types.BytesToAddress(k)
-		if addr != staking.AddrStakingContract {
-			return false
-		}
-
-		obj := v.(*state.StateObject)
-		obj.Txn.Root().Walk(func(k []byte, v interface{}) bool {
-			storageMap[types.BytesToHash(k)] = types.BytesToHash(v.([]byte))
-
-			return false
-		})
-
-		return true
-	})
-
-	transition.Commit()
-
-	stakingAccount := &chain.GenesisAccount{
-		Balance: transition.GetBalance(staking.AddrStakingContract),
-		Nonce:   transition.GetNonce(staking.AddrStakingContract),
-		Code:    artifact.DeployedBytecode,
-		Storage: storageMap,
-	}
-
-	return stakingAccount, nil
+	return contractAccount, nil
 }
 
 // PredeployStakingSC is a helper method for setting up the staking smart contract account,
