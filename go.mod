@@ -31,7 +31,7 @@ require (
 	github.com/ryanuber/columnize v2.1.0+incompatible
 	github.com/stretchr/testify v1.3.0
 	github.com/syndtr/goleveldb v1.0.0
-	github.com/valyala/fasthttp v1.2.0
-	golang.org/x/crypto v0.0.0-20190417174047-f416ebab96af
+	github.com/valyala/fasthttp v1.34.0
+	golang.org/x/crypto v0.0.0-20220214200702-86341886e292
 	gopkg.in/natefinch/npipe.v2 v2.0.0-20160621034901-c1b8fa8bdcce
 )
